@@ -68,10 +68,8 @@ def get_api_answer(current_timestamp, bot):
 
 
 def check_response(response, bot):
-    """
-    Функция проверяет ответ API на корректность,
-    возвращает список домашних работ.
-    """
+    """Функция проверяет ответ API на корректность,
+    возвращает список домашних работ."""
     try:
         if isinstance(response, dict) and (
                 'homeworks' in response and 'current_date' in response):
@@ -84,10 +82,8 @@ def check_response(response, bot):
 
 
 def parse_status(homework, bot):
-    """
-    Функция возвращает подготовленную для отправки в Telegram строку,
-    содержащую один из вердиктов словаря HOMEWORK_STATUSES
-    """
+    """Функция возвращает подготовленную для отправки в Telegram строку,
+    содержащую один из вердиктов словаря HOMEWORK_STATUSES"""
     name = homework.get('lesson_name')
     status = homework.get('status')
     try:
@@ -102,10 +98,8 @@ def parse_status(homework, bot):
 
 
 def check_tokens():
-    """
-    Функция проверяет доступность переменных окружения,
-    которые необходимы для работы программы.
-    """
+    """Функция проверяет доступность переменных окружения,
+    которые необходимы для работы программы."""
     available = True
     params = {'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
               'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
@@ -122,11 +116,9 @@ def check_tokens():
 
 
 def handle_error(bot, message):
-    """
-    Функция обрабатывает ошибки уровня ERROR -
+    """Функция обрабатывает ошибки уровня ERROR -
     формирует лог и отправляет сообщение в телеграм,
-    если оно не было отправлено ранее
-    """
+    если оно не было отправлено ранее"""
     logger.exception(message)
 
     stack = traceback.extract_stack()
@@ -140,7 +132,6 @@ def handle_error(bot, message):
 
 def main():
     """Основная логика работы бота."""
-
     if not check_tokens():
         raise SystemExit
 
