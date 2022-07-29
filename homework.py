@@ -76,11 +76,11 @@ def check_response(response):
     Возвращает список домашних работ.
     """
     try:
-        if (isinstance(response, dict) and
-                len(response) != 0 and
-                'homeworks' in response and
-                'current_date' in response and
-                isinstance(response.get('homeworks'), list)):
+        if (isinstance(response, dict)
+                and len(response) != 0
+                and 'homeworks' in response
+                and 'current_date' in response
+                and isinstance(response.get('homeworks'), list)):
             return response.get('homeworks')
         else:
             raise IncorrectResponseException()
@@ -126,10 +126,7 @@ def check_tokens():
 
 
 def handle_error(bot, message):
-    """
-    Функция отправляет сообщение в телеграм, если оно еще не передавалось.
-    """
-
+    """Функция отправляет сообщение в телеграм, если оно еще не передавалось."""
     if type(message) == telegram.error.BadRequest:
         return
 
