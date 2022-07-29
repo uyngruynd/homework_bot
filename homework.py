@@ -126,7 +126,9 @@ def check_tokens():
 
 
 def handle_error(bot, message):
-    """Функция отправляет сообщение в телеграм, если оно еще не передавалось."""
+    """
+    Функция отправляет сообщение в телеграм, если оно еще не передавалось.
+    """
     if type(message) == telegram.error.BadRequest:
         return
 
