@@ -1,8 +1,8 @@
-class IncorrectResponseException(Exception):
+class IncorrectResponseException(TypeError):
     """В ответе не обнаружены ожидаемые ключи"""
     pass
 
 
-class UnknownStatusException(Exception):
+class UnknownStatusException(KeyError):
     """В ответе не обнаружены ожидаемые ключи"""
     pass

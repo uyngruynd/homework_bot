@@ -2,13 +2,15 @@ import logging
 import os
 import time
 import requests
-import traceback
 
 from logging import StreamHandler
+
+import telegram.error
 from requests import HTTPError
 from telegram import Bot
 from dotenv import load_dotenv
 from sys import stdout
+from http import HTTPStatus
 
 from exceptions import IncorrectResponseException, UnknownStatusException
 
@@ -19,6 +21,7 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_TIME: int = 5  # 600
+ERROR_CACHE_LIFETIME: int = 60  # * 60 * 24
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
@@ -28,11 +31,7 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-errors_occur = {'get_api_answer': 0,
-                'check_response': 0,
-                'parse_status': 0,
-                'main': 0,
-                }
+errors_occur = {}
 
 formatter = logging.Formatter(
     '%(asctime)s [%(levelname)s] %(message)s')
@@ -51,54 +50,62 @@ def send_message(bot, message):
         logger.info(f'Сообщение "{message}" успешно отправлено')
     except Exception as error:
         logger.exception(f'Ошибка при отправке сообщения: {error}')
+        raise
 
 
-def get_api_answer(current_timestamp, bot):
+def get_api_answer(current_timestamp):
     """Функция делает запрос к эндпоинту API-сервиса."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-        return response.json()
+        if response.status_code == HTTPStatus.OK:
+            return response.json()
+        raise HTTPError()
     except (HTTPError, ConnectionRefusedError) as error:
-        handle_error(bot, f'Ресурс {ENDPOINT} недоступен: {error}!', )
+        logger.exception(f'Ресурс {ENDPOINT} недоступен: {error}!')
+        raise
     except Exception as error:
-        handle_error(bot, f'Ошибка при запросе к API: {error}!')
-    return {}
+        logger.exception(f'Ошибка при запросе к API: {error}!')
+        raise
 
 
-def check_response(response, bot):
+def check_response(response):
     """
     Функция проверяет ответ API на корректность.
     Возвращает список домашних работ.
     """
     try:
-        if isinstance(response, dict) and (
-                'homeworks' in response and 'current_date' in response):
+        if (isinstance(response, dict) and
+                len(response) != 0 and
+                'homeworks' in response and
+                'current_date' in response and
+                isinstance(response.get('homeworks'), list)):
             return response.get('homeworks')
         else:
             raise IncorrectResponseException()
     except IncorrectResponseException:
-        handle_error(bot, 'Ответ API не соответствует ожидаемому!')
-        return []
+        logger.exception('Ответ API не соответствует ожидаемому!')
+        raise
 
 
-def parse_status(homework, bot):
+def parse_status(homework):
     """
     Функция возвращает подготовленную для отправки в Telegram строку.
     Строка должна содержать один из вердиктов словаря HOMEWORK_STATUSES.
     """
-    name = homework.get('lesson_name')
-    status = homework.get('status')
+    homework_name = homework.get('homework_name')
+    homework_status = homework.get('status')
+
     try:
-        verdict = HOMEWORK_STATUSES.get(status)
+        verdict = HOMEWORK_STATUSES.get(homework_status)
         if verdict is None:
             raise UnknownStatusException()
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     except UnknownStatusException:
-        verdict = '--статус неизвестен--'
-        handle_error(bot,
-                     f'Получен неизвестный статус домашней работы: {status}')
-    return f'Изменился статус проверки работы "{name}". {verdict}'
+        logger.exception(
+            f'Получен неизвестный статус домашней работы: {homework_status}')
+        raise
 
 
 def check_tokens():
@@ -120,19 +127,17 @@ def check_tokens():
 
 def handle_error(bot, message):
     """
-    Функция обрабатывает ошибки уровня ERROR.
-    Далее формирует лог и отправляет сообщение в телеграм,
-    если оно не было отправлено ранее.
+    Функция отправляет сообщение в телеграм, если оно еще не передавалось.
     """
-    logger.exception(message)
 
-    stack = traceback.extract_stack()
-    prev_func_name = stack[-2].name
-    error = errors_occur.get(prev_func_name)
+    if type(message) == telegram.error.BadRequest:
+        return
 
-    if error == 0:
-        errors_occur[prev_func_name] = 1
-        send_message(bot, 'WARNING: ' + message)
+    message = str(message)
+    error = errors_occur.get(message)
+    if not error:
+        errors_occur[message] = int(time.time())
+        send_message(bot, 'WARNING!: ' + message)
 
 
 def main():
@@ -142,14 +147,18 @@ def main():
 
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
+    cache_cleared = current_timestamp
 
     while True:
         try:
-            response = get_api_answer(current_timestamp, bot)
-            homeworks = check_response(response, bot)
+            if int(time.time()) - cache_cleared > ERROR_CACHE_LIFETIME:
+                errors_occur.clear()
+
+            response = get_api_answer(current_timestamp)
+            homeworks = check_response(response)
 
             if homeworks:
-                message = parse_status(homeworks[0], bot)
+                message = parse_status(homeworks[0])
                 send_message(bot, message)
             else:
                 logger.debug('Нет новых статусов')
@@ -158,7 +167,7 @@ def main():
             time.sleep(RETRY_TIME)
 
         except Exception as error:
-            handle_error(bot, f'Сбой в работе программы: {error}')
+            handle_error(bot, error)
             time.sleep(RETRY_TIME)
 
 
