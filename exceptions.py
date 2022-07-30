@@ -6,3 +6,8 @@ class IncorrectResponseException(TypeError):
 class UnknownStatusException(KeyError):
     """В ответе не обнаружены ожидаемые ключи"""
     pass
+
+
+class TelegramAPIException(Exception):
+    """API телеграм не отвечает"""
+    pass

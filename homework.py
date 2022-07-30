@@ -4,28 +4,27 @@ import time
 import requests
 
 from logging import StreamHandler
-
-import telegram.error
 from requests import HTTPError
 from telegram import Bot
 from dotenv import load_dotenv
 from sys import stdout
 from http import HTTPStatus
 
-from exceptions import IncorrectResponseException, UnknownStatusException
+from exceptions import (IncorrectResponseException, UnknownStatusException,
+                        TelegramAPIException)
+from endpoints import ENDPOINT
 
 load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
-RETRY_TIME: int = 600
+TELEGRAM_RETRY_TIME: int = 600
 ERROR_CACHE_LIFETIME: int = 60 * 60 * 24
-ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
+
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
-HOMEWORK_STATUSES = {
+HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
@@ -49,8 +48,9 @@ def send_message(bot, message):
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.info(f'Сообщение "{message}" успешно отправлено')
     except Exception as error:
-        logger.exception(f'Ошибка при отправке сообщения: {error}')
-        raise
+        error_message = f'Ошибка при отправке сообщения: {error}'
+        logger.exception(error_message)
+        raise TelegramAPIException(error_message)
 
 
 def get_api_answer(current_timestamp):
@@ -63,11 +63,13 @@ def get_api_answer(current_timestamp):
             return response.json()
         raise HTTPError()
     except (HTTPError, ConnectionRefusedError) as error:
-        logger.exception(f'Ресурс {ENDPOINT} недоступен: {error}!')
-        raise
+        error_message = f'Ресурс {ENDPOINT} недоступен: {error}!'
+        logger.exception(error_message)
+        raise HTTPError(error_message)
     except Exception as error:
-        logger.exception(f'Ошибка при запросе к API: {error}!')
-        raise
+        error_message = f'Ошибка при запросе к API: {error}!'
+        logger.exception(error_message)
+        raise Exception(error_message)
 
 
 def check_response(response):
@@ -75,18 +77,18 @@ def check_response(response):
     Функция проверяет ответ API на корректность.
     Возвращает список домашних работ.
     """
-    try:
-        if (isinstance(response, dict)
-                and len(response) != 0
-                and 'homeworks' in response
-                and 'current_date' in response
-                and isinstance(response.get('homeworks'), list)):
-            return response.get('homeworks')
-        else:
-            raise IncorrectResponseException()
-    except IncorrectResponseException:
-        logger.exception('Ответ API не соответствует ожидаемому!')
-        raise
+    logger.debug('Проверка ответа сервиса на корректность.')
+
+    if (isinstance(response, dict)
+            and len(response) != 0
+            and 'homeworks' in response
+            and 'current_date' in response
+            and isinstance(response.get('homeworks'), list)):
+        return response.get('homeworks')
+    else:
+        error_message = 'Ответ API не соответствует ожидаемому!'
+        logger.exception(error_message)
+        raise IncorrectResponseException(error_message)
 
 
 def parse_status(homework):
@@ -97,37 +99,30 @@ def parse_status(homework):
     homework_name = homework.get('homework_name')
     homework_status = homework.get('status')
 
-    try:
-        verdict = HOMEWORK_STATUSES.get(homework_status)
-        if verdict is None:
-            raise UnknownStatusException()
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    except UnknownStatusException:
-        logger.exception(
+    if homework_status not in HOMEWORK_VERDICTS:
+        error_message = (
             f'Получен неизвестный статус домашней работы: {homework_status}')
-        raise
+        logger.exception(error_message)
+        raise UnknownStatusException(error_message)
+    verdict = HOMEWORK_VERDICTS.get(homework_status)
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
     """Функция проверяет доступность переменных окружения."""
     available = True
-    params = {'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
-              'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
-              'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
-              }
-    not_valid = ['', None]
-    for key, value in params.items():
-        if value in not_valid:
-            available = False
-            logger.critical(f'Отсутствует обязательная переменная окружения:'
-                            f'{key}! Программа принудительно остановлена.'
-                            )
+    params = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
+    if not all(params):
+        available = False
+        logger.critical(f'Отсутствует обязательная переменная окружения,'
+                        f'Программа принудительно остановлена.'
+                        )
     return available
 
 
 def handle_error(bot, message):
     """Ф-я отправляет сообщение в телеграм, если оно еще не передавалось."""
-    if type(message) == telegram.error.BadRequest:
+    if type(message) == TelegramAPIException:
         return
 
     message = str(message)
@@ -140,7 +135,7 @@ def handle_error(bot, message):
 def main():
     """Основная логика работы бота."""
     if not check_tokens():
-        raise SystemExit
+        raise SystemExit('Критическая ошибка, бот остановлен!')
 
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
@@ -161,11 +156,10 @@ def main():
                 logger.debug('Нет новых статусов')
 
             current_timestamp = int(time.time())
-            time.sleep(RETRY_TIME)
-
         except Exception as error:
             handle_error(bot, error)
-            time.sleep(RETRY_TIME)
+        finally:
+            time.sleep(TELEGRAM_RETRY_TIME)
 
 
 if __name__ == '__main__':
