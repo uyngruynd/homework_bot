@@ -114,8 +114,8 @@ def check_tokens():
     params = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
     if not all(params):
         available = False
-        logger.critical(f'Отсутствует обязательная переменная окружения,'
-                        f'Программа принудительно остановлена.'
+        logger.critical('Отсутствует обязательная переменная окружения,'
+                        'Программа принудительно остановлена.'
                         )
     return available
 
