@@ -63,11 +63,11 @@ def get_api_answer(current_timestamp):
             return response.json()
         raise HTTPError()
     except (HTTPError, ConnectionRefusedError) as error:
-        error_message = f'Ресурс {ENDPOINT} недоступен: {error}!'
+        error_message = f'Ресурс {ENDPOINT} недоступен по причине: {error}'
         logger.exception(error_message)
         raise HTTPError(error_message)
     except Exception as error:
-        error_message = f'Ошибка при запросе к API: {error}!'
+        error_message = f'Ошибка при запросе к API: {error}'
         logger.exception(error_message)
         raise Exception(error_message)
 
@@ -129,7 +129,7 @@ def handle_error(bot, message):
     error = errors_occur.get(message)
     if not error:
         errors_occur[message] = int(time.time())
-        send_message(bot, 'WARNING!: ' + message)
+        send_message(bot, '[WARNING] ' + message)
 
 
 def main():
